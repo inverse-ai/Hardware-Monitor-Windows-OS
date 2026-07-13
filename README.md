@@ -67,7 +67,7 @@ the hidden `⌃` overflow — drag it onto the taskbar to pin it).
 | **Drag** the panel | Moves it; it remembers the nearest corner |
 | **Drag it to a screen edge** | **Docks (auto-hides) to that edge** — top, left, right or bottom |
 | **Drag the left/right edge** | Resizes the width (see sizes below) |
-| **Click the `»` button** (top-right) | Collapses to the last-used edge (top by default) |
+| **Click the `»` button** (top-right) | Collapses to the **nearest** screen edge — the button's arrow (`«` `»` `▴` `▾`) shows which, and follows the widget as you move it |
 | **Hover the edge bar** (when collapsed) | The widget **peeks out**; it slides away again when the pointer leaves |
 | **Click the edge bar** | Brings the widget back for good (un-docks) |
 | **Right-click** the panel or tray icon | Opens the settings menu |
@@ -107,7 +107,8 @@ above it.
 - **Opacity** — 60–100 %
 - **Refresh** — 0.5 / 1 / 2 / 5 s
 - **Network units** — KB/s, MB/s (bytes, default) or Kbps, Mbps (bits)
-- **Hide to edge** — collapse to the Left / Right / Top edge
+- **Hide to edge** — collapse to the Top / Left / Right / Bottom edge
+- **Show values in taskbar** — dock to the bottom as an icon+value readout (toggle)
 - **Start with Windows** — add/remove a Startup shortcut
 - **Open full dashboard** — launch the web view
 

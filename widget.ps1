@@ -326,6 +326,21 @@ function Clamp-OnScreen {
   $form.Location = New-Object System.Drawing.Point([int]$x, [int]$y)
 }
 
+# Which screen edge the widget is currently closest to (drives the collapse button
+# arrow + where clicking it docks). Follows the widget as it's dragged around.
+function Nearest-Edge {
+  $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+  $dT = $form.Top - $wa.Top
+  $dB = $wa.Bottom - $form.Bottom
+  $dL = $form.Left - $wa.Left
+  $dR = $wa.Right - $form.Right
+  $min = [math]::Min([math]::Min($dT, $dB), [math]::Min($dL, $dR))
+  if ($min -eq $dT) { return 'top' }
+  if ($min -eq $dB) { return 'bottom' }
+  if ($min -eq $dL) { return 'left' }
+  return 'right'
+}
+
 # ---------- drawing ----------
 $fontLabel = New-Object System.Drawing.Font 'Segoe UI', 9, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Point)
 $fontValue = New-Object System.Drawing.Font 'Segoe UI Semibold', 11, ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Point)
@@ -480,7 +495,7 @@ $form.Add_Paint({
   $brCrit = New-Object System.Drawing.SolidBrush $Pal.crit
 
   # collapse (hide-to-edge) button, top-right; glyph points toward the dock edge
-  $hbGlyph = switch ($Cfg.dockEdge) { 'left' { [char]0x00AB } 'right' { [char]0x00BB } 'bottom' { [char]0x25BE } default { [char]0x25B4 } }
+  $hbGlyph = switch (Nearest-Edge) { 'left' { [char]0x00AB } 'right' { [char]0x00BB } 'bottom' { [char]0x25BE } default { [char]0x25B4 } }
   $hbRect = New-Object System.Drawing.RectangleF ($w - 27), 3, 22, 18
   $hbBg = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(34, 255, 255, 255))
   $g.FillRectangle($hbBg, $hbRect.X, $hbRect.Y, $hbRect.Width, $hbRect.Height); $hbBg.Dispose()
@@ -536,15 +551,15 @@ $form.Add_Paint({
       if ($subText) { $g.DrawString($subText, $fontSmall, $brMuted, (New-Object System.Drawing.RectangleF $labelX, ($y + 17), ($w - $labelX - 4), 12), $sfLeft) }
     }
     else {
-      # full: label + value + sub + sparkline
+      # full: label + value (line 1), sub (line 2), sparkline (line 3) - kept vertically
+      # separate so the graph never draws over the sub-line text
       $g.DrawString($m.label, $fontLabel, $brMuted, $labelX, ($y + 1))
-      $g.DrawString($valText, $fontValue, $valBrush, (New-Object System.Drawing.RectangleF 0, ($y - 2), ($w - $rightPad), 22), $sfRight)
+      $g.DrawString($valText, $fontValue, $valBrush, (New-Object System.Drawing.RectangleF 0, ($y - 2), ($w - $rightPad), 20), $sfRight)
       if ($subText) {
         $subBrush = if ($isNet) { $brInk2 } else { $brMuted }
-        $subFont = if ($isNet) { $fontSmall } else { $fontSmall }
-        $g.DrawString($subText, $subFont, $subBrush, (New-Object System.Drawing.RectangleF 0, ($y + 24), ($w - $rightPad), 14), $sfRight)
+        $g.DrawString($subText, $fontSmall, $subBrush, (New-Object System.Drawing.RectangleF 0, ($y + 16), ($w - $rightPad), 13), $sfRight)
       }
-      $sr = New-Object System.Drawing.RectangleF $labelX, ($y + 26), ($w - $labelX - 14), 14
+      $sr = New-Object System.Drawing.RectangleF $labelX, ($y + 31), ($w - $labelX - 14), 12
       if ($isNet) {
         $max = 0.0
         foreach ($v in @($d.histDown) + @($d.histUp)) { if ($v -gt $max) { $max = $v } }
@@ -572,7 +587,7 @@ $script:downScreen = New-Object System.Drawing.Point 0, 0; $script:moved = $fals
 $form.Add_MouseDown({ param($s, $e)
   if ($e.Button -ne 'Left') { return }
   $w = $Cfg.width
-  if ($e.X -ge ($w - 28) -and $e.Y -le 22) { Hide-ToEdge $Cfg.dockEdge; return }   # collapse button
+  if ($e.X -ge ($w - 28) -and $e.Y -le 22) { Hide-ToEdge (Nearest-Edge); return }   # collapse button -> dock to nearest edge
   if ($e.X -le 7) { $script:resizing = 'left'; $script:rsX = [System.Windows.Forms.Cursor]::Position.X; $script:rsW = $w; $script:rsLeft = $form.Left; return }
   if ($e.X -ge ($w - 7)) { $script:resizing = 'right'; $script:rsX = [System.Windows.Forms.Cursor]::Position.X; $script:rsW = $w; return }
   $script:drag = $true; $script:dragOff = $e.Location
@@ -599,6 +614,7 @@ $form.Add_MouseMove({ param($s, $e)
     if ([math]::Abs($cur.X - $script:downScreen.X) + [math]::Abs($cur.Y - $script:downScreen.Y) -gt 4) { $script:moved = $true }
     if ($script:moved) {
       $form.Location = New-Object System.Drawing.Point(($form.Left + $e.X - $script:dragOff.X), ($form.Top + $e.Y - $script:dragOff.Y))
+      $form.Invalidate()   # refresh the collapse-button arrow to match the nearest edge
     }
     return
   }
@@ -728,6 +744,11 @@ function Build-Menu {
     [void]$hd.DropDownItems.Add($mi)
   }
   [void]$menu.Items.Add($hd)
+  # Show values in the taskbar (dock to the bottom as an icon+value readout) - toggle
+  $inTaskbar = ($script:docked -and $Cfg.dockEdge -eq 'bottom')
+  Add-MenuItem $menu 'Show values in taskbar' $inTaskbar {
+    if ($script:docked -and $Cfg.dockEdge -eq 'bottom') { Show-Widget } else { Hide-ToEdge 'bottom' }
+  } | Out-Null
   [void]$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
   # Start with Windows
   $startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'Hardware Widget.lnk'
