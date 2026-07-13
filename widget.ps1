@@ -60,9 +60,9 @@ $Pal = @{
 }
 
 # ---------- formatting ----------
-function Format-Bytes([double]$b, [int]$dp = 1) {
-  if ($null -eq $b) { return '--' }
-  $u = 'B', 'KB', 'MB', 'GB', 'TB'; $i = 0; $v = [math]::Abs($b)
+function Format-Bytes($b, [int]$dp = 1) {
+  if ($null -eq $b) { return '--' }   # $b left untyped so a missing value stays $null (a [double] param would coerce it to 0)
+  $u = 'B', 'KB', 'MB', 'GB', 'TB'; $i = 0; $v = [math]::Abs([double]$b)
   while ($v -ge 1024 -and $i -lt 4) { $v /= 1024; $i++ }
   $d = if ($v -ge 100 -or $i -eq 0) { 0 } else { $dp }
   return ('{0:N' + $d + '} {1}') -f $v, $u[$i]
@@ -154,7 +154,12 @@ function Load-Cfg {
       }
     }
   } catch {}
-  return $DefaultCfg.Clone()
+  # deep copy so mutating $Cfg.stats never touches $DefaultCfg.stats (Clone() is shallow)
+  return @{
+    corner = $DefaultCfg.corner; opacity = $DefaultCfg.opacity; interval = $DefaultCfg.interval
+    width = $DefaultCfg.width; dockEdge = $DefaultCfg.dockEdge; netUnits = $DefaultCfg.netUnits
+    stats = @{ cpu = $true; ram = $true; gpu = $true; vram = $true; net = $true }
+  }
 }
 $Cfg = Load-Cfg
 function Save-Cfg {
@@ -307,8 +312,11 @@ function Set-Rounded {
   Set-DwmCorners $form.Handle 2
 }
 
+# The monitor a window currently sits on (multi-monitor aware).
+function Screen-Of($f) { return [System.Windows.Forms.Screen]::FromRectangle($f.Bounds) }
+
 function Place-Corner {
-  $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+  $wa = (Screen-Of $form).WorkingArea
   $m = 16
   switch ($Cfg.corner) {
     'top-left'     { $x = $wa.Left + $m;  $y = $wa.Top + $m }
@@ -320,7 +328,7 @@ function Place-Corner {
 }
 
 function Clamp-OnScreen {
-  $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+  $wa = (Screen-Of $form).WorkingArea
   $x = [math]::Min([math]::Max($form.Left, $wa.Left), $wa.Right - $form.Width)
   $y = [math]::Min([math]::Max($form.Top, $wa.Top), $wa.Bottom - $form.Height)
   $form.Location = New-Object System.Drawing.Point([int]$x, [int]$y)
@@ -329,7 +337,7 @@ function Clamp-OnScreen {
 # Which screen edge the widget is currently closest to (drives the collapse button
 # arrow + where clicking it docks). Follows the widget as it's dragged around.
 function Nearest-Edge {
-  $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+  $wa = (Screen-Of $form).WorkingArea
   $dT = $form.Top - $wa.Top
   $dB = $wa.Bottom - $form.Bottom
   $dL = $form.Left - $wa.Left
@@ -630,8 +638,8 @@ $form.Add_MouseUp({ param($s, $e)
     $script:drag = $false
     if (-not $script:moved) { Open-Dashboard; return }   # a click (not a drag) opens the dashboard
     # If the pointer was pushed to a screen edge, auto-hide (dock) to that edge.
-    $sb = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     $cur = [System.Windows.Forms.Cursor]::Position
+    $sb = ([System.Windows.Forms.Screen]::FromPoint($cur)).Bounds
     $thr = 5
     $edge = $null
     if ($cur.Y -le $sb.Top + $thr) { $edge = 'top' }
@@ -645,7 +653,7 @@ $form.Add_MouseUp({ param($s, $e)
       $dockTimer.Stop(); $peek.Hide(); Build-Menu
     }
     Clamp-OnScreen
-    $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+    $wa = (Screen-Of $form).WorkingArea
     $cx = $form.Left + $form.Width / 2; $cy = $form.Top + $form.Height / 2
     $hh = if ($cx -lt ($wa.Left + $wa.Width / 2)) { 'left' } else { 'right' }
     $vv = if ($cy -lt ($wa.Top + $wa.Height / 2)) { 'top' } else { 'bottom' }
@@ -658,7 +666,14 @@ function Rebuild-Layout {
   $form.Width = $Cfg.width
   $form.Height = Measure-Height
   Set-Rounded
-  Place-Corner
+  if ($script:docked) {
+    # keep the docked bar sized to the current stats (esp. the bottom readout width)
+    Place-Peek $Cfg.dockEdge
+    $peek.Invalidate()
+    if ($script:peekShown) { Peek-Place }
+  } else {
+    Place-Corner
+  }
   $form.Invalidate()
 }
 
@@ -815,8 +830,9 @@ function Set-PeekRounded {
 }
 
 function Place-Peek($edge) {
-  $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-  $sb = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+  $scr = Screen-Of $form
+  $wa = $scr.WorkingArea
+  $sb = $scr.Bounds
   $dim = Peek-Dims $edge; $pw = $dim[0]; $ph = $dim[1]
   $peek.Width = $pw; $peek.Height = $ph
   switch ($edge) {
@@ -884,7 +900,7 @@ $peek.Add_MouseDown({ param($s, $e) Show-Widget })   # click the bar to bring th
 
 # Position the widget just inside the bar so the bar stays visible and clickable.
 function Peek-Place {
-  $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+  $wa = (Screen-Of $peek).WorkingArea
   switch ($Cfg.dockEdge) {
     'left'   { $x = $peek.Right; $y = [int]($peek.Top + $peek.Height / 2 - $form.Height / 2) }
     'top'    { $x = [int]($peek.Left + $peek.Width / 2 - $form.Width / 2); $y = $peek.Bottom }
