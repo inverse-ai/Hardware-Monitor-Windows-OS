@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hardware Monitor</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='2' y='2' width='20' height='20' rx='5' fill='%231a1a19'/%3E%3Cpath d='M4 13h4l2-6 4 10 2-4h4' fill='none' stroke='%233987e5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="2" width="20" height="20" rx="5" class="logo-bg"/><path d="M4 13h4l2-6 4 10 2-4h4" fill="none" class="logo-line" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <h1>Hardware Monitor</h1>
+    <span id="conn" class="conn is-off"><span class="conn-dot"></span><span id="connText">Connecting…</span></span>
+  </div>
+  <div class="actions">
+    <button id="btnTheme" class="btn icon" title="Toggle light / dark theme" aria-label="Toggle theme">◐</button>
+    <button id="btnSettings" class="btn icon" title="Settings" aria-label="Settings">⚙</button>
+  </div>
+</header>
+
+<main id="dashView" class="view">
+  <div id="tiles" class="tiles tiles-select" role="tablist" aria-label="Choose a stat to inspect"></div>
+  <p id="sysline" class="footnote"></p>
+  <p id="widgetEmpty" class="empty hidden">All stats are hidden — open ⚙ Settings to enable some.</p>
+
+  <!-- CPU -->
+  <div class="stat-detail" data-detail="cpu">
+    <div class="chart-host" data-chart="cpu"></div>
+    <section class="panel" id="cpuPanel">
+      <div class="panel-head">
+        <h2>CPU cores</h2>
+        <span id="cpuMeta" class="muted"></span>
+      </div>
+      <div id="coreGrid" class="core-grid"></div>
+      <p id="sysRatesLine" class="footnote"></p>
+    </section>
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Processes</h2>
+        <div class="panel-tools">
+          <input id="procSearch" type="search" placeholder="Filter by name…" spellcheck="false">
+          <label class="check"><input type="checkbox" id="optGroup"> Group by app</label>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="procTable" class="data">
+          <thead><tr>
+            <th data-sort="name" class="t-left">Name</th>
+            <th data-sort="pids" class="t-right">PIDs</th>
+            <th data-sort="cpu" class="t-right">CPU</th>
+            <th data-sort="memB" class="t-right">Memory</th>
+            <th data-sort="ioR" class="t-right">Read/s</th>
+            <th data-sort="ioW" class="t-right">Write/s</th>
+            <th data-sort="threads" class="t-right">Threads</th>
+            <th data-sort="tcp" class="t-right">TCP</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="panel-foot">
+        <span id="procCount" class="muted"></span>
+        <button id="procMore" class="btn subtle">Show all</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- Memory -->
+  <div class="stat-detail" data-detail="mem">
+    <div class="chart-host" data-chart="mem"></div>
+    <section class="panel" id="memPanel">
+      <div class="panel-head">
+        <h2>Memory</h2>
+        <span id="memMeta" class="muted"></span>
+      </div>
+      <div id="memBar" class="mem-bar"></div>
+      <div id="memLegend" class="mem-legend"></div>
+      <div id="memFacts" class="facts"></div>
+    </section>
+  </div>
+
+  <!-- GPU -->
+  <div class="stat-detail" data-detail="gpu">
+    <div class="chart-host" data-chart="gpu"></div>
+    <section class="panel" id="gpuPanel">
+      <div class="panel-head">
+        <h2>GPU</h2>
+        <span id="gpuMeta" class="muted"></span>
+      </div>
+      <div id="gpuFacts" class="facts"></div>
+      <div id="gpuCharts" class="charts sub"></div>
+      <div class="net-grid">
+        <div>
+          <h3>Engine utilization</h3>
+          <div id="gpuEngines" class="engines"></div>
+        </div>
+        <div>
+          <h3>Processes on GPU <span class="muted">(dedicated VRAM)</span></h3>
+          <div class="table-wrap">
+            <table id="gpuProcTable" class="data">
+              <thead><tr>
+                <th class="t-left no-sort">Name</th><th class="no-sort">PID</th>
+                <th class="no-sort">GPU</th><th class="no-sort">VRAM</th><th class="no-sort">Shared</th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="panel-foot">
+            <span id="gpuProcCount" class="muted"></span>
+            <button id="gpuProcMore" class="btn subtle">Show all</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Network -->
+  <div class="stat-detail" data-detail="net">
+    <div class="chart-host" data-chart="net"></div>
+    <section class="panel">
+      <div class="panel-head"><h2>Network</h2></div>
+      <div class="net-grid">
+        <div>
+          <h3>Adapters</h3>
+          <div class="table-wrap">
+            <table id="nicTable" class="data">
+              <thead><tr>
+                <th class="t-left">Adapter</th><th class="t-right">Link</th>
+                <th class="t-right">Down</th><th class="t-right">Up</th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div>
+          <h3>By app <span class="muted">(connections exact · rates approximate†)</span></h3>
+          <div class="table-wrap">
+            <table id="netAppTable" class="data">
+              <thead><tr>
+                <th data-sort="name" class="t-left">Name</th>
+                <th data-sort="tcp" class="t-right">Conns</th>
+                <th data-sort="est" class="t-right">Estab.</th>
+                <th data-sort="io" class="t-right">I/O rate†</th>
+                <th class="t-left">Remote endpoints</th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <p class="footnote">† Windows only exposes exact per-app network bandwidth to elevated ETW traces. The I/O rate shown is the
+        process's total I/O (network + disk combined) — treat it as an upper bound. Connection counts and remote endpoints are exact.</p>
+    </section>
+  </div>
+
+  <!-- Disk -->
+  <div class="stat-detail" data-detail="disk">
+    <div class="chart-host" data-chart="disk"></div>
+    <section class="panel" id="diskPanel">
+      <div class="panel-head"><h2>Disks</h2></div>
+      <div id="diskGrid" class="disk-grid"></div>
+    </section>
+  </div>
+</main>
+
+<aside id="drawer" class="drawer" aria-hidden="true" aria-label="Settings">
+  <div class="drawer-head">
+    <h2>Settings</h2>
+    <button id="btnCloseSettings" class="btn icon" aria-label="Close settings">✕</button>
+  </div>
+
+  <section>
+    <h3>Stats to show</h3>
+    <label class="check"><span class="key key-cpu"></span><input type="checkbox" data-stat="cpu"> CPU</label>
+    <label class="check"><span class="key key-ram"></span><input type="checkbox" data-stat="ram"> Memory</label>
+    <label class="check"><span class="key key-gpu"></span><input type="checkbox" data-stat="gpu"> GPU</label>
+    <label class="check"><span class="key key-vram"></span><input type="checkbox" data-stat="vram"> GPU memory (VRAM)</label>
+    <label class="check"><span class="key key-down"></span><input type="checkbox" data-stat="net"> Network</label>
+    <label class="check"><span class="key key-disk"></span><input type="checkbox" data-stat="disk"> Disk</label>
+  </section>
+
+  <section>
+    <h3>Options</h3>
+    <label class="row"><span>Refresh</span>
+      <select id="optInterval">
+        <option value="500">0.5 s</option>
+        <option value="1000">1 s</option>
+        <option value="2000">2 s</option>
+        <option value="5000">5 s</option>
+      </select>
+    </label>
+    <label class="row"><span>History window</span>
+      <select id="optHistory">
+        <option value="30">30 samples</option>
+        <option value="60">60 samples</option>
+        <option value="120">120 samples</option>
+        <option value="240">240 samples</option>
+      </select>
+    </label>
+    <label class="row"><span>Network units</span>
+      <select id="optUnits">
+        <option value="bits">Mbps (bits)</option>
+        <option value="bytes">MB/s (bytes)</option>
+      </select>
+    </label>
+    <label class="row"><span>Adapter</span>
+      <select id="optAdapter"><option value="all">All adapters</option></select>
+    </label>
+    <label class="check"><input type="checkbox" id="optSpark"> Sparklines on tiles</label>
+    <label class="check"><input type="checkbox" id="optCores"> Per-core bars on CPU tile</label>
+    <label class="check"><input type="checkbox" id="optCompact"> Compact tiles</label>
+  </section>
+
+  <button id="btnReset" class="btn subtle">Reset to defaults</button>
+</aside>
+<div id="backdrop" class="backdrop hidden"></div>
+
+<div id="tooltip" class="tooltip hidden" role="status"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

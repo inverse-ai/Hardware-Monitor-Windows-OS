@@ -1,0 +1,8 @@
+# Runtime files created by the app
+widget-config.json
+widget-error.log
+
+# Scratch / OS
+*.tmp
+Thumbs.db
+desktop.ini
