@@ -65,8 +65,9 @@ the hidden `⌃` overflow — drag it onto the taskbar to pin it).
 |---|---|
 | **Click** the panel | Opens the full web dashboard |
 | **Drag** the panel | Moves it; it remembers the nearest corner |
+| **Drag it to a screen edge** | **Docks (auto-hides) to that edge** — top, left, right or bottom |
 | **Drag the left/right edge** | Resizes the width (see sizes below) |
-| **Click the `»` button** (top-right) | Collapses the widget to the docked screen edge |
+| **Click the `»` button** (top-right) | Collapses to the last-used edge (top by default) |
 | **Hover the edge bar** (when collapsed) | The widget **peeks out**; it slides away again when the pointer leaves |
 | **Click the edge bar** | Brings the widget back for good (un-docks) |
 | **Right-click** the panel or tray icon | Opens the settings menu |
@@ -85,11 +86,18 @@ readable at any size:
 
 ### Auto-hide to an edge
 
-Click the `»` button (or right-click → **Hide to edge → Left / Right / Top**) and
-the widget slides off to that screen edge, leaving a slim bar. **Hover the bar**
-and the widget peeks back into view; move the pointer away and it hides again —
-like the Windows taskbar's auto-hide. **Click the bar** to bring it back
-permanently, or just **drag** the peeked widget away from the edge.
+**Drag the widget to any screen edge** — top, left, right or bottom — and it docks
+there, leaving a slim bar. (You can also click the `»` button, or use right-click →
+**Hide to edge**.) **Hover the bar** and the widget peeks back into view; move the
+pointer away and it hides again — like the Windows taskbar's auto-hide. **Click the
+bar** to bring it back for good, or just **drag** the peeked widget away from the edge.
+
+Each edge shows a fitting bar: a thin vertical/horizontal sliver with a live CPU
+meter and an arrow. The **bottom edge is special** — docking there drops a
+**taskbar-style readout** into the taskbar band showing every stat as an icon +
+value (e.g. `▣ 34%  ▤ 21.8 GB  ▥ 100%  …`), so you can keep glancing at the
+numbers while the full panel is tucked away. Hover it to peek the full widget out
+above it.
 
 ### Right-click menu
 

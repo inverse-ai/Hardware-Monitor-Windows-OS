@@ -133,7 +133,7 @@ if ($SelfTest) {
 
 # ---------- config ----------
 $DefaultCfg = @{
-  corner = 'bottom-right'; opacity = 88; interval = 1000; width = 248; dockEdge = 'right'; netUnits = 'bytes'
+  corner = 'bottom-right'; opacity = 88; interval = 1000; width = 248; dockEdge = 'top'; netUnits = 'bytes'
   stats = @{ cpu = $true; ram = $true; gpu = $true; vram = $true; net = $true }
 }
 function Load-Cfg {
@@ -480,7 +480,7 @@ $form.Add_Paint({
   $brCrit = New-Object System.Drawing.SolidBrush $Pal.crit
 
   # collapse (hide-to-edge) button, top-right; glyph points toward the dock edge
-  $hbGlyph = switch ($Cfg.dockEdge) { 'left' { [char]0x00AB } 'top' { [char]0x25B4 } default { [char]0x00BB } }
+  $hbGlyph = switch ($Cfg.dockEdge) { 'left' { [char]0x00AB } 'right' { [char]0x00BB } 'bottom' { [char]0x25BE } default { [char]0x25B4 } }
   $hbRect = New-Object System.Drawing.RectangleF ($w - 27), 3, 22, 18
   $hbBg = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(34, 255, 255, 255))
   $g.FillRectangle($hbBg, $hbRect.X, $hbRect.Y, $hbRect.Width, $hbRect.Height); $hbBg.Dispose()
@@ -613,11 +613,22 @@ $form.Add_MouseUp({ param($s, $e)
   if ($script:drag) {
     $script:drag = $false
     if (-not $script:moved) { Open-Dashboard; return }   # a click (not a drag) opens the dashboard
+    # If the pointer was pushed to a screen edge, auto-hide (dock) to that edge.
+    $sb = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    $cur = [System.Windows.Forms.Cursor]::Position
+    $thr = 5
+    $edge = $null
+    if ($cur.Y -le $sb.Top + $thr) { $edge = 'top' }
+    elseif ($cur.Y -ge $sb.Bottom - $thr) { $edge = 'bottom' }
+    elseif ($cur.X -le $sb.Left + $thr) { $edge = 'left' }
+    elseif ($cur.X -ge $sb.Right - $thr) { $edge = 'right' }
+    if ($edge) { Hide-ToEdge $edge; return }
+    # Otherwise it's a normal move: un-dock if it was docked, snap on-screen, remember corner.
     if ($script:docked) {
-      # dragged the peeked widget out of the dock -> become a normal floating widget again
       $script:docked = $false; $script:peekShown = $false
-      $dockTimer.Stop(); $peek.Hide(); Clamp-OnScreen; Build-Menu
+      $dockTimer.Stop(); $peek.Hide(); Build-Menu
     }
+    Clamp-OnScreen
     $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
     $cx = $form.Left + $form.Width / 2; $cy = $form.Top + $form.Height / 2
     $hh = if ($cx -lt ($wa.Left + $wa.Width / 2)) { 'left' } else { 'right' }
@@ -708,8 +719,10 @@ function Build-Menu {
   [void]$menu.Items.Add($nu)
   # Hide to edge (collapse to a small restore tab)
   $hd = New-Object System.Windows.Forms.ToolStripMenuItem 'Hide to edge'
-  foreach ($ed in @('left', 'right', 'top')) {
-    $mi = New-Object System.Windows.Forms.ToolStripMenuItem ($ed.Substring(0, 1).ToUpper() + $ed.Substring(1))
+  foreach ($ed in @('top', 'left', 'right', 'bottom')) {
+    $lbl = if ($ed -eq 'bottom') { 'Bottom (taskbar readout)' } else { $ed.Substring(0, 1).ToUpper() + $ed.Substring(1) }
+    $mi = New-Object System.Windows.Forms.ToolStripMenuItem $lbl
+    $mi.Checked = ($Cfg.dockEdge -eq $ed)
     $mi.Tag = $ed
     $mi.Add_Click({ param($s, $e) Hide-ToEdge $s.Tag }.GetNewClosure())
     [void]$hd.DropDownItems.Add($mi)
@@ -754,7 +767,26 @@ $script:docked = $false
 $script:peekShown = $false
 $script:lastHover = Get-Date
 
-function Peek-Dims($edge) { if ($edge -eq 'top') { return @(140, 26) } else { return @(26, 140) } }
+# Compact per-stat value for the bottom (taskbar) readout.
+function Stat-ShortValue($key, $d) {
+  switch ($key) {
+    'cpu'  { return "$([math]::Round($d.cpu))%" }
+    'ram'  { if ($null -ne $d.memPct) { return (Format-Bytes $d.memUsedB) } else { return '--' } }
+    'gpu'  { if ($d.hasGpu) { return "$([math]::Round($d.gpuUtil))%" } else { return 'n/a' } }
+    'vram' { if ($d.hasGpu) { return (Format-Bytes $d.vramUsedB) } else { return 'n/a' } }
+    'net'  { return ([string][char]0x2193 + (Format-RateShort $d.netDown)) }
+    default { return '--' }
+  }
+}
+
+function Peek-Dims($edge) {
+  if ($edge -eq 'top') { return @(140, 26) }
+  if ($edge -eq 'bottom') {
+    $n = (Get-VisibleStats).Count; if ($n -lt 1) { $n = 1 }
+    return @(($n * 86 + 10), 30)    # horizontal readout: one cell per stat
+  }
+  return @(26, 140)                 # left / right vertical bar
+}
 
 function Set-PeekRounded {
   $peek.Region = $null
@@ -763,12 +795,20 @@ function Set-PeekRounded {
 
 function Place-Peek($edge) {
   $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+  $sb = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
   $dim = Peek-Dims $edge; $pw = $dim[0]; $ph = $dim[1]
   $peek.Width = $pw; $peek.Height = $ph
   switch ($edge) {
-    'left'  { $x = $wa.Left; $y = $wa.Top + [int](($wa.Height - $ph) / 2) }
-    'top'   { $x = $wa.Left + [int](($wa.Width - $pw) / 2); $y = $wa.Top }
-    default { $x = $wa.Right - $pw; $y = $wa.Top + [int](($wa.Height - $ph) / 2) }
+    'left'   { $x = $wa.Left; $y = $wa.Top + [int](($wa.Height - $ph) / 2) }
+    'top'    { $x = $wa.Left + [int](($wa.Width - $pw) / 2); $y = $wa.Top }
+    'bottom' {
+      # sit in the taskbar band (if the taskbar is at the bottom), just left of the tray
+      $tbH = $sb.Bottom - $wa.Bottom
+      if ($tbH -gt 8) { $y = $wa.Bottom + [int](([math]::Max($tbH, $ph) - $ph) / 2) } else { $y = $wa.Bottom - $ph - 2 }
+      $x = $sb.Right - $pw - 200
+      if ($x -lt $wa.Left + 6) { $x = $wa.Left + 6 }
+    }
+    default  { $x = $wa.Right - $pw; $y = $wa.Top + [int](($wa.Height - $ph) / 2) }   # right
   }
   $peek.Location = New-Object System.Drawing.Point([int]$x, [int]$y)
   Set-PeekRounded
@@ -781,20 +821,38 @@ $peek.Add_Paint({ param($s, $e)
   $bg = New-Object System.Drawing.SolidBrush $Pal.card
   $g.FillRectangle($bg, 0, 0, $peek.Width, $peek.Height); $bg.Dispose()
   $d = $Sync.data
-  $cpu = if ($d) { [math]::Round($d.cpu) } else { 0 }
-  $mc = if ($cpu -ge 90) { $Pal.crit } elseif ($cpu -ge 70) { $Pal.warn } else { $Pal.cpu }
   $edge = $Cfg.dockEdge
   $tb = New-Object System.Drawing.SolidBrush $Pal.ink
-  if ($edge -eq 'top') {
-    $mb = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(50, $mc.R, $mc.G, $mc.B))
-    $g.FillRectangle($mb, 0, 0, [int]($peek.Width * $cpu / 100), $peek.Height); $mb.Dispose()
-    $g.DrawString([string][char]0x25BE, $fontArrow, $tb, (New-Object System.Drawing.RectangleF 0, -2, $peek.Width, $peek.Height), $sfCenter)
-  } else {
-    $fillH = [int]($peek.Height * $cpu / 100)
-    $mb = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(60, $mc.R, $mc.G, $mc.B))
-    $g.FillRectangle($mb, 0, ($peek.Height - $fillH), $peek.Width, $fillH); $mb.Dispose()
-    $arrow = if ($edge -eq 'left') { [char]0x00BB } else { [char]0x00AB }   # » expand right / « expand left
-    $g.DrawString([string]$arrow, $fontArrow, $tb, (New-Object System.Drawing.RectangleF 0, 0, $peek.Width, $peek.Height), $sfCenter)
+  if ($edge -eq 'bottom') {
+    # taskbar-style readout: each enabled stat as icon + value, left to right
+    $vis = Get-VisibleStats
+    $n = $vis.Count; if ($n -lt 1) { $n = 1 }
+    $cellW = $peek.Width / $n
+    $sfm = New-Object System.Drawing.StringFormat; $sfm.Alignment = 'Near'; $sfm.LineAlignment = 'Center'
+    $ci = 0
+    foreach ($m in $vis) {
+      $cellX = $ci * $cellW
+      Draw-Icon $g $m.key ($cellX + 8) 8 14 $m.color
+      $val = if ($d) { Stat-ShortValue $m.key $d } else { '--' }
+      $g.DrawString([string]$val, $fontLabel, $tb, (New-Object System.Drawing.RectangleF ($cellX + 26), 0, ($cellW - 28), $peek.Height), $sfm)
+      $ci++
+    }
+    $sfm.Dispose()
+  }
+  else {
+    $cpu = if ($d) { [math]::Round($d.cpu) } else { 0 }
+    $mc = if ($cpu -ge 90) { $Pal.crit } elseif ($cpu -ge 70) { $Pal.warn } else { $Pal.cpu }
+    if ($edge -eq 'top') {
+      $mb = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(50, $mc.R, $mc.G, $mc.B))
+      $g.FillRectangle($mb, 0, 0, [int]($peek.Width * $cpu / 100), $peek.Height); $mb.Dispose()
+      $g.DrawString([string][char]0x25BE, $fontArrow, $tb, (New-Object System.Drawing.RectangleF 0, -2, $peek.Width, $peek.Height), $sfCenter)
+    } else {
+      $fillH = [int]($peek.Height * $cpu / 100)
+      $mb = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(60, $mc.R, $mc.G, $mc.B))
+      $g.FillRectangle($mb, 0, ($peek.Height - $fillH), $peek.Width, $fillH); $mb.Dispose()
+      $arrow = if ($edge -eq 'left') { [char]0x00BB } else { [char]0x00AB }   # » expand right / « expand left
+      $g.DrawString([string]$arrow, $fontArrow, $tb, (New-Object System.Drawing.RectangleF 0, 0, $peek.Width, $peek.Height), $sfCenter)
+    }
   }
   $tb.Dispose()
   } catch {
@@ -807,9 +865,10 @@ $peek.Add_MouseDown({ param($s, $e) Show-Widget })   # click the bar to bring th
 function Peek-Place {
   $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
   switch ($Cfg.dockEdge) {
-    'left'  { $x = $peek.Right; $y = [int]($peek.Top + $peek.Height / 2 - $form.Height / 2) }
-    'top'   { $x = [int]($peek.Left + $peek.Width / 2 - $form.Width / 2); $y = $peek.Bottom }
-    default { $x = $peek.Left - $form.Width; $y = [int]($peek.Top + $peek.Height / 2 - $form.Height / 2) }
+    'left'   { $x = $peek.Right; $y = [int]($peek.Top + $peek.Height / 2 - $form.Height / 2) }
+    'top'    { $x = [int]($peek.Left + $peek.Width / 2 - $form.Width / 2); $y = $peek.Bottom }
+    'bottom' { $x = [int]($peek.Left + $peek.Width / 2 - $form.Width / 2); $y = $peek.Top - $form.Height }
+    default  { $x = $peek.Left - $form.Width; $y = [int]($peek.Top + $peek.Height / 2 - $form.Height / 2) }
   }
   $x = [math]::Min([math]::Max($x, $wa.Left), $wa.Right - $form.Width)
   $y = [math]::Min([math]::Max($y, $wa.Top), $wa.Bottom - $form.Height)
