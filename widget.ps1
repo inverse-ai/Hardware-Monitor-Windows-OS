@@ -933,42 +933,49 @@ $peek.Add_Paint({ param($s, $e)
   }
   else {
     # top / left / right: stack one mini meter per stat, each filled to its own
-    # percentage in its own colour, plus a small arrow pointing to the widget.
+    # percentage in its own colour, separated by crisp dividers, plus a small
+    # arrow pointing to the widget.
     $arrowBand = if ($edge -eq 'top') { 16 } else { 18 }
+    $divPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 10, 10, 10)), 2
     if ($edge -eq 'top') {
       $avail = $peek.Width - $arrowBand
       $boxW = $avail / $n
+      $iy = 3; $ih = $peek.Height - 6
       for ($i = 0; $i -lt $n; $i++) {
         $m = $vis[$i]; $pct = Stat-Pct $m.key $d
-        $bx = $i * $boxW + 2; $bw = $boxW - 3
-        $iy = 3; $ih = $peek.Height - 6
+        $bx = [int]($i * $boxW) + 3; $bw = [int]$boxW - 5
         $trk = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(45, $m.color.R, $m.color.G, $m.color.B))
-        $g.FillRectangle($trk, [int]$bx, $iy, [int]$bw, $ih); $trk.Dispose()
+        $g.FillRectangle($trk, $bx, $iy, $bw, $ih); $trk.Dispose()
         $fh = [int]($ih * $pct / 100)
         if ($fh -gt 0) {
           $fb = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(230, $m.color.R, $m.color.G, $m.color.B))
-          $g.FillRectangle($fb, [int]$bx, ($iy + $ih - $fh), [int]$bw, $fh); $fb.Dispose()
+          $g.FillRectangle($fb, $bx, ($iy + $ih - $fh), $bw, $fh); $fb.Dispose()
         }
       }
+      for ($i = 1; $i -lt $n; $i++) { $xg = [int]($i * $boxW); $g.DrawLine($divPen, $xg, 1, $xg, ($peek.Height - 2)) }
+      $g.DrawLine($divPen, ($peek.Width - $arrowBand), 1, ($peek.Width - $arrowBand), ($peek.Height - 2))
       $g.DrawString([string][char]0x25BE, $fontBtn, $tb, (New-Object System.Drawing.RectangleF ($peek.Width - $arrowBand), -1, $arrowBand, $peek.Height), $sfCenter)
     } else {
       $avail = $peek.Height - $arrowBand
       $boxH = $avail / $n
+      $ix = 3; $iw = $peek.Width - 6
       for ($i = 0; $i -lt $n; $i++) {
         $m = $vis[$i]; $pct = Stat-Pct $m.key $d
-        $by = $arrowBand + $i * $boxH + 2; $bh = $boxH - 3
-        $ix = 3; $iw = $peek.Width - 6
+        $by = [int]($arrowBand + $i * $boxH) + 3; $bh = [int]$boxH - 5
         $trk = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(45, $m.color.R, $m.color.G, $m.color.B))
-        $g.FillRectangle($trk, $ix, [int]$by, $iw, [int]$bh); $trk.Dispose()
+        $g.FillRectangle($trk, $ix, $by, $iw, $bh); $trk.Dispose()
         $fh = [int]($bh * $pct / 100)
         if ($fh -gt 0) {
           $fb = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(230, $m.color.R, $m.color.G, $m.color.B))
           $g.FillRectangle($fb, $ix, [int]($by + $bh - $fh), $iw, $fh); $fb.Dispose()
         }
       }
+      for ($i = 1; $i -lt $n; $i++) { $yg = [int]($arrowBand + $i * $boxH); $g.DrawLine($divPen, 1, $yg, ($peek.Width - 2), $yg) }
+      $g.DrawLine($divPen, 1, $arrowBand, ($peek.Width - 2), $arrowBand)
       $arrow = if ($edge -eq 'left') { [char]0x00BB } else { [char]0x00AB }   # » expand right / « expand left
       $g.DrawString([string]$arrow, $fontBtn, $tb, (New-Object System.Drawing.RectangleF 0, -1, $peek.Width, $arrowBand), $sfCenter)
     }
+    $divPen.Dispose()
   }
   $tb.Dispose()
   } catch {
