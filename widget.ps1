@@ -900,6 +900,7 @@ function Place-Peek($edge) {
 }
 
 $peek.Add_Paint({ param($s, $e)
+  $tb = $null; $sfm = $null; $divPen = $null; $trackBrush = $null
   try {
   $g = $e.Graphics
   $g.SmoothingMode = 'AntiAlias'; $g.TextRenderingHint = 'ClearTypeGridFit'
@@ -929,7 +930,6 @@ $peek.Add_Paint({ param($s, $e)
       $g.DrawString([string]$val, $fontLabel, $tb, (New-Object System.Drawing.RectangleF ($cellX + 26), -1, ($cellW - 28), ($peek.Height - 2)), $sfm)
       $ci++
     }
-    $sfm.Dispose()
   }
   else {
     # top / left / right: stack one mini meter per stat, each filled to its own
@@ -974,11 +974,15 @@ $peek.Add_Paint({ param($s, $e)
       $arrow = if ($edge -eq 'left') { [char]0x00BB } else { [char]0x00AB }   # » expand right / « expand left
       $g.DrawString([string]$arrow, $fontBtn, $tb, (New-Object System.Drawing.RectangleF 0, -1, $peek.Width, $arrowBand), $sfCenter)
     }
-    $divPen.Dispose(); $trackBrush.Dispose()
   }
-  $tb.Dispose()
   } catch {
     "$([DateTime]::Now) PEEK: $($_.Exception.Message)" | Out-File -FilePath $LogPath -Append -Encoding UTF8
+  } finally {
+    # dispose long-lived GDI objects on every path, incl. a mid-paint throw
+    if ($tb) { $tb.Dispose() }
+    if ($sfm) { $sfm.Dispose() }
+    if ($divPen) { $divPen.Dispose() }
+    if ($trackBrush) { $trackBrush.Dispose() }
   }
 })
 $peek.Add_MouseDown({ param($s, $e) Show-Widget })   # click the bar to bring the widget back for good
