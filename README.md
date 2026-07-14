@@ -50,7 +50,10 @@ Only one widget runs at a time — launching again (e.g. via both files) won't s
 > (these are plain text scripts you can read).
 
 To have the widget **start automatically at login**, right-click it →
-**Start with Windows**.
+**Start with Windows** (this adds a shortcut to your Startup folder). The widget
+**remembers its state** between runs — if you leave it docked/hidden at a screen
+edge, it comes back hidden at that same edge on the next launch; if it was
+floating, it returns to its corner.
 
 ---
 

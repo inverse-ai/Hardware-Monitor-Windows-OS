@@ -140,7 +140,7 @@ if (-not $gotSingleton) { exit }
 
 # ---------- config ----------
 $DefaultCfg = @{
-  corner = 'bottom-right'; opacity = 88; interval = 1000; width = 248; dockEdge = 'top'; netUnits = 'bytes'
+  corner = 'bottom-right'; opacity = 88; interval = 1000; width = 248; dockEdge = 'top'; netUnits = 'bytes'; docked = $false
   stats = @{ cpu = $true; ram = $true; gpu = $true; vram = $true; net = $true }
 }
 function Load-Cfg {
@@ -154,6 +154,7 @@ function Load-Cfg {
         width   = if ($j.width) { [int]$j.width } else { $DefaultCfg.width }
         dockEdge = if ($j.dockEdge) { [string]$j.dockEdge } else { $DefaultCfg.dockEdge }
         netUnits = if ($j.netUnits) { [string]$j.netUnits } else { $DefaultCfg.netUnits }
+        docked   = [bool]$j.docked
         stats = @{
           cpu  = [bool]$j.stats.cpu;  ram  = [bool]$j.stats.ram
           gpu  = [bool]$j.stats.gpu;  vram = [bool]$j.stats.vram; net = [bool]$j.stats.net
@@ -164,7 +165,7 @@ function Load-Cfg {
   # deep copy so mutating $Cfg.stats never touches $DefaultCfg.stats (Clone() is shallow)
   return @{
     corner = $DefaultCfg.corner; opacity = $DefaultCfg.opacity; interval = $DefaultCfg.interval
-    width = $DefaultCfg.width; dockEdge = $DefaultCfg.dockEdge; netUnits = $DefaultCfg.netUnits
+    width = $DefaultCfg.width; dockEdge = $DefaultCfg.dockEdge; netUnits = $DefaultCfg.netUnits; docked = $false
     stats = @{ cpu = $true; ram = $true; gpu = $true; vram = $true; net = $true }
   }
 }
@@ -312,6 +313,8 @@ $form.BackColor = $Pal.card
 $form.Width = $Cfg.width
 $form.Height = Measure-Height
 $form.Opacity = $Cfg.opacity / 100
+# start off-screen so it never flashes at (0,0) before Add_Shown positions/docks it
+$form.Location = New-Object System.Drawing.Point(-20000, -20000)
 
 function Set-Rounded {
   # DWM rounds the actual window corners smoothly (anti-aliased); no jagged Region clip.
@@ -656,7 +659,7 @@ $form.Add_MouseUp({ param($s, $e)
     if ($edge) { Hide-ToEdge $edge; return }
     # Otherwise it's a normal move: un-dock if it was docked, snap on-screen, remember corner.
     if ($script:docked) {
-      $script:docked = $false; $script:peekShown = $false
+      $script:docked = $false; $script:peekShown = $false; $Cfg.docked = $false
       $dockTimer.Stop(); $peek.Hide(); Build-Menu
     }
     Clamp-OnScreen
@@ -933,7 +936,7 @@ function Peek-In {
 }
 
 function Hide-ToEdge($edge) {
-  $Cfg.dockEdge = $edge; Save-Cfg
+  $Cfg.dockEdge = $edge; $Cfg.docked = $true; Save-Cfg   # remember docked state for next startup
   $script:docked = $true; $script:peekShown = $false
   Place-Peek $edge
   $form.Hide()
@@ -944,6 +947,7 @@ function Hide-ToEdge($edge) {
 }
 function Show-Widget {
   $script:docked = $false; $script:peekShown = $false
+  $Cfg.docked = $false; Save-Cfg
   $dockTimer.Stop()
   $peek.Hide()
   $form.Show(); $form.TopMost = $true
@@ -1033,7 +1037,11 @@ $timer.Add_Tick({
 $timer.Start()
 
 # ---------- lifecycle ----------
-$form.Add_Shown({ Set-Rounded; Place-Corner })
+$form.Add_Shown({
+  Set-Rounded
+  if ($Cfg.docked) { Hide-ToEdge $Cfg.dockEdge }   # restore last hidden/docked state at startup
+  else { Place-Corner }
+})
 $form.Add_FormClosing({
   $Sync.run = $false
   $timer.Stop()
