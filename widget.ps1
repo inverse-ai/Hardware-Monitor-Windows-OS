@@ -131,6 +131,13 @@ if ($SelfTest) {
 # hide the launching console window (belt-and-suspenders; VBS also launches hidden)
 [void][Native.Win]::ShowWindow([Native.Win]::GetConsoleWindow(), 0)
 
+# single instance: if a widget is already running, quietly exit (so launching from
+# both the .cmd and the VBS, or twice, never stacks duplicate widgets).
+$script:singleton = New-Object System.Threading.Mutex($false, 'Local\InverseAI_HardwareWidget')
+$gotSingleton = $false
+try { $gotSingleton = $script:singleton.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $gotSingleton = $true }
+if (-not $gotSingleton) { exit }
+
 # ---------- config ----------
 $DefaultCfg = @{
   corner = 'bottom-right'; opacity = 88; interval = 1000; width = 248; dockEdge = 'top'; netUnits = 'bytes'

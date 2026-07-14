@@ -35,10 +35,14 @@ Everything runs **unelevated** (no administrator rights).
 
 1. **Download** this repository (green **Code → Download ZIP**, then extract) or
    `git clone https://github.com/inverse-ai/Hardware-Monitor-Windows-OS.git`.
-2. **Desktop widget:** double-click **`Hardware Widget.vbs`**. A panel appears in
-   the bottom-right corner and a CPU% icon appears in the system tray.
-3. **Web dashboard:** click the widget, or double-click
-   **`Start Hardware Monitor.cmd`**, then browse to `http://localhost:8787/`.
+2. **Start everything:** double-click **`Start Hardware Monitor.cmd`**. The desktop
+   widget appears in the bottom-right corner (with a CPU% icon in the system tray),
+   **and** the web dashboard opens in an Edge app window.
+3. **Widget only:** if you just want the desktop widget, double-click
+   **`Hardware Widget.vbs`** instead. You can always open the dashboard later by
+   clicking the widget, or by browsing to `http://localhost:8787/`.
+
+Only one widget runs at a time — launching again (e.g. via both files) won't stack duplicates.
 
 > **First run / "running scripts is disabled":** the launchers already pass
 > `-ExecutionPolicy Bypass`, so no policy change is needed. If Windows
