@@ -99,12 +99,19 @@ there, leaving a slim bar. (You can also click the `»` button, or use right-cli
 pointer away and it hides again — like the Windows taskbar's auto-hide. **Click the
 bar** to bring it back for good, or just **drag** the peeked widget away from the edge.
 
-Each edge shows a fitting bar: a thin vertical/horizontal sliver with a live CPU
-meter and an arrow. The **bottom edge is special** — docking there drops a
-**taskbar-style readout** into the taskbar band showing every stat as an icon +
-value (e.g. `▣ 34%  ▤ 21.8 GB  ▥ 100%  …`), so you can keep glancing at the
-numbers while the full panel is tucked away. Hover it to peek the full widget out
-above it.
+Each edge shows a fitting bar that **stacks a small meter for every enabled
+stat** — one coloured box per stat (CPU, Memory, GPU, VRAM, Network), each
+filled to its own live percentage in the stat's colour — plus an arrow pointing
+back to the widget. So even collapsed, the bar is an at-a-glance level display of
+all your stats, not just one. The **bottom edge is special** — docking there
+drops a **taskbar-style readout** into the taskbar band showing every stat as an
+icon + value (e.g. `▣ 34%  ▤ 21.8 GB  ▥ 100%  …`) with a thin colour fill under
+each, so you can keep glancing at the numbers while the full panel is tucked
+away. Hover it to peek the full widget out above it.
+
+The bar **scales with your screen** — it's sized as a fraction of the monitor's
+working area (clamped to a sensible range), so it stays proportionate on small
+laptop displays and large monitors alike.
 
 ### Right-click menu
 

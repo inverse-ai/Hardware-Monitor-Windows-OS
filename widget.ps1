@@ -825,13 +825,51 @@ function Stat-ShortValue($key, $d) {
   }
 }
 
+# 0-100 meter value per stat, used to fill the collapsed (docked) bar's boxes.
+# Network has no fixed range, so it's scaled to its own recent peak throughput.
+function Stat-Pct($key, $d) {
+  if (-not $d) { return 0.0 }
+  switch ($key) {
+    'cpu'  { return [double]$d.cpu }
+    'ram'  { if ($null -ne $d.memPct) { return [double]$d.memPct } else { return 0.0 } }
+    'gpu'  { if ($d.hasGpu) { return [double]$d.gpuUtil } else { return 0.0 } }
+    'vram' { if ($d.hasGpu -and $null -ne $d.vramPct) { return [double]$d.vramPct } else { return 0.0 } }
+    'net'  {
+      $max = 0.0
+      foreach ($v in @($d.histDown) + @($d.histUp)) { if ($v -gt $max) { $max = $v } }
+      if ($max -le 0) { return 0.0 }
+      $cur = [math]::Max([double]$d.netDown, [double]$d.netUp)
+      return [math]::Min(100.0, $cur / $max * 100.0)
+    }
+    default { return 0.0 }
+  }
+}
+
+# Collapsed-bar size. Scales with the screen so it shrinks on smaller monitors
+# instead of being a fixed 140 px (which looked oversized on small displays).
 function Peek-Dims($edge) {
-  if ($edge -eq 'top') { return @(140, 26) }
+  $wa = (Screen-Of $form).WorkingArea
+  $sw = $wa.Width; $sh = $wa.Height
+  # bar thickness scales gently with the screen, clamped to a touchable range
+  $thick = [int][math]::Round([math]::Max($sw, $sh) / 90.0)
+  $thick = [math]::Max(22, [math]::Min(32, $thick))
+  if ($edge -eq 'top') {
+    $len = [int][math]::Round($sw * 0.10)
+    $len = [math]::Max(96, [math]::Min(200, $len))
+    return @($len, $thick)
+  }
   if ($edge -eq 'bottom') {
     $n = (Get-VisibleStats).Count; if ($n -lt 1) { $n = 1 }
-    return @(($n * 86 + 10), 30)    # horizontal readout: one cell per stat
+    $cell = [int][math]::Round($sw * 0.05)
+    $cell = [math]::Max(72, [math]::Min(92, $cell))   # keep icon+value readable
+    $w = $n * $cell + 10
+    $maxW = [int][math]::Round($sw * 0.6); if ($w -gt $maxW) { $w = $maxW }
+    return @($w, [math]::Max(28, $thick + 2))
   }
-  return @(26, 140)                 # left / right vertical bar
+  # left / right vertical bar
+  $len = [int][math]::Round($sh * 0.16)
+  $len = [math]::Max(96, [math]::Min(220, $len))
+  return @($thick, $len)
 }
 
 function Set-PeekRounded {
@@ -870,35 +908,66 @@ $peek.Add_Paint({ param($s, $e)
   $d = $Sync.data
   $edge = $Cfg.dockEdge
   $tb = New-Object System.Drawing.SolidBrush $Pal.ink
+  $vis = Get-VisibleStats
+  $n = $vis.Count; if ($n -lt 1) { $n = 1 }
   if ($edge -eq 'bottom') {
-    # taskbar-style readout: each enabled stat as icon + value, left to right
-    $vis = Get-VisibleStats
-    $n = $vis.Count; if ($n -lt 1) { $n = 1 }
+    # taskbar-style readout: each enabled stat as icon + value, left to right,
+    # with a thin percentage-fill under each cell in the stat's colour
     $cellW = $peek.Width / $n
     $sfm = New-Object System.Drawing.StringFormat; $sfm.Alignment = 'Near'; $sfm.LineAlignment = 'Center'
     $ci = 0
     foreach ($m in $vis) {
       $cellX = $ci * $cellW
-      Draw-Icon $g $m.key ($cellX + 8) 8 14 $m.color
+      $pct = Stat-Pct $m.key $d
+      $fw = [int](($cellW - 8) * $pct / 100)
+      if ($fw -gt 0) {
+        $mb = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(220, $m.color.R, $m.color.G, $m.color.B))
+        $g.FillRectangle($mb, [int]($cellX + 4), ($peek.Height - 3), $fw, 3); $mb.Dispose()
+      }
+      Draw-Icon $g $m.key ($cellX + 8) 7 14 $m.color
       $val = if ($d) { Stat-ShortValue $m.key $d } else { '--' }
-      $g.DrawString([string]$val, $fontLabel, $tb, (New-Object System.Drawing.RectangleF ($cellX + 26), 0, ($cellW - 28), $peek.Height), $sfm)
+      $g.DrawString([string]$val, $fontLabel, $tb, (New-Object System.Drawing.RectangleF ($cellX + 26), -1, ($cellW - 28), ($peek.Height - 2)), $sfm)
       $ci++
     }
     $sfm.Dispose()
   }
   else {
-    $cpu = if ($d) { [math]::Round($d.cpu) } else { 0 }
-    $mc = if ($cpu -ge 90) { $Pal.crit } elseif ($cpu -ge 70) { $Pal.warn } else { $Pal.cpu }
+    # top / left / right: stack one mini meter per stat, each filled to its own
+    # percentage in its own colour, plus a small arrow pointing to the widget.
+    $arrowBand = if ($edge -eq 'top') { 16 } else { 18 }
     if ($edge -eq 'top') {
-      $mb = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(50, $mc.R, $mc.G, $mc.B))
-      $g.FillRectangle($mb, 0, 0, [int]($peek.Width * $cpu / 100), $peek.Height); $mb.Dispose()
-      $g.DrawString([string][char]0x25BE, $fontArrow, $tb, (New-Object System.Drawing.RectangleF 0, -2, $peek.Width, $peek.Height), $sfCenter)
+      $avail = $peek.Width - $arrowBand
+      $boxW = $avail / $n
+      for ($i = 0; $i -lt $n; $i++) {
+        $m = $vis[$i]; $pct = Stat-Pct $m.key $d
+        $bx = $i * $boxW + 2; $bw = $boxW - 3
+        $iy = 3; $ih = $peek.Height - 6
+        $trk = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(45, $m.color.R, $m.color.G, $m.color.B))
+        $g.FillRectangle($trk, [int]$bx, $iy, [int]$bw, $ih); $trk.Dispose()
+        $fh = [int]($ih * $pct / 100)
+        if ($fh -gt 0) {
+          $fb = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(230, $m.color.R, $m.color.G, $m.color.B))
+          $g.FillRectangle($fb, [int]$bx, ($iy + $ih - $fh), [int]$bw, $fh); $fb.Dispose()
+        }
+      }
+      $g.DrawString([string][char]0x25BE, $fontBtn, $tb, (New-Object System.Drawing.RectangleF ($peek.Width - $arrowBand), -1, $arrowBand, $peek.Height), $sfCenter)
     } else {
-      $fillH = [int]($peek.Height * $cpu / 100)
-      $mb = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(60, $mc.R, $mc.G, $mc.B))
-      $g.FillRectangle($mb, 0, ($peek.Height - $fillH), $peek.Width, $fillH); $mb.Dispose()
+      $avail = $peek.Height - $arrowBand
+      $boxH = $avail / $n
+      for ($i = 0; $i -lt $n; $i++) {
+        $m = $vis[$i]; $pct = Stat-Pct $m.key $d
+        $by = $arrowBand + $i * $boxH + 2; $bh = $boxH - 3
+        $ix = 3; $iw = $peek.Width - 6
+        $trk = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(45, $m.color.R, $m.color.G, $m.color.B))
+        $g.FillRectangle($trk, $ix, [int]$by, $iw, [int]$bh); $trk.Dispose()
+        $fh = [int]($bh * $pct / 100)
+        if ($fh -gt 0) {
+          $fb = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(230, $m.color.R, $m.color.G, $m.color.B))
+          $g.FillRectangle($fb, $ix, [int]($by + $bh - $fh), $iw, $fh); $fb.Dispose()
+        }
+      }
       $arrow = if ($edge -eq 'left') { [char]0x00BB } else { [char]0x00AB }   # » expand right / « expand left
-      $g.DrawString([string]$arrow, $fontArrow, $tb, (New-Object System.Drawing.RectangleF 0, 0, $peek.Width, $peek.Height), $sfCenter)
+      $g.DrawString([string]$arrow, $fontBtn, $tb, (New-Object System.Drawing.RectangleF 0, -1, $peek.Width, $arrowBand), $sfCenter)
     }
   }
   $tb.Dispose()
