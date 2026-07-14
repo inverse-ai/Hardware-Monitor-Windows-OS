@@ -937,6 +937,7 @@ $peek.Add_Paint({ param($s, $e)
     # arrow pointing to the widget.
     $arrowBand = if ($edge -eq 'top') { 16 } else { 18 }
     $divPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 10, 10, 10)), 2
+    $trackBrush = New-Object System.Drawing.SolidBrush $Pal.grid   # single background for every box
     if ($edge -eq 'top') {
       $avail = $peek.Width - $arrowBand
       $boxW = $avail / $n
@@ -944,8 +945,7 @@ $peek.Add_Paint({ param($s, $e)
       for ($i = 0; $i -lt $n; $i++) {
         $m = $vis[$i]; $pct = Stat-Pct $m.key $d
         $bx = [int]($i * $boxW) + 3; $bw = [int]$boxW - 5
-        $trk = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(45, $m.color.R, $m.color.G, $m.color.B))
-        $g.FillRectangle($trk, $bx, $iy, $bw, $ih); $trk.Dispose()
+        $g.FillRectangle($trackBrush, $bx, $iy, $bw, $ih)
         $fh = [int]($ih * $pct / 100)
         if ($fh -gt 0) {
           $fb = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(230, $m.color.R, $m.color.G, $m.color.B))
@@ -962,8 +962,7 @@ $peek.Add_Paint({ param($s, $e)
       for ($i = 0; $i -lt $n; $i++) {
         $m = $vis[$i]; $pct = Stat-Pct $m.key $d
         $by = [int]($arrowBand + $i * $boxH) + 3; $bh = [int]$boxH - 5
-        $trk = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(45, $m.color.R, $m.color.G, $m.color.B))
-        $g.FillRectangle($trk, $ix, $by, $iw, $bh); $trk.Dispose()
+        $g.FillRectangle($trackBrush, $ix, $by, $iw, $bh)
         $fh = [int]($bh * $pct / 100)
         if ($fh -gt 0) {
           $fb = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(230, $m.color.R, $m.color.G, $m.color.B))
@@ -975,7 +974,7 @@ $peek.Add_Paint({ param($s, $e)
       $arrow = if ($edge -eq 'left') { [char]0x00BB } else { [char]0x00AB }   # » expand right / « expand left
       $g.DrawString([string]$arrow, $fontBtn, $tb, (New-Object System.Drawing.RectangleF 0, -1, $peek.Width, $arrowBand), $sfCenter)
     }
-    $divPen.Dispose()
+    $divPen.Dispose(); $trackBrush.Dispose()
   }
   $tb.Dispose()
   } catch {
