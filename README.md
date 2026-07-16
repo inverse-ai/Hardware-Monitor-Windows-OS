@@ -104,10 +104,15 @@ stat** — one coloured box per stat (CPU, Memory, GPU, VRAM, Network), each
 filled to its own live percentage in the stat's colour — plus an arrow pointing
 back to the widget. So even collapsed, the bar is an at-a-glance level display of
 all your stats, not just one. The **bottom edge is special** — docking there
-drops a **taskbar-style readout** into the taskbar band showing every stat as an
-icon + value (e.g. `▣ 34%  ▤ 21.8 GB  ▥ 100%  …`) with a thin colour fill under
-each, so you can keep glancing at the numbers while the full panel is tucked
-away. Hover it to peek the full widget out above it.
+drops a **taskbar-style readout** just above the taskbar, at the right near the
+tray, showing every stat as an icon + value (e.g. `▣ 34%  ▤ 21.8 GB  ▥ 100%  …`)
+with a thin colour fill under each. The values are packed snugly to their own
+widths (no wasted gaps), so you can keep glancing at the numbers while the full
+panel is tucked away. Hover it to peek the full widget out above it.
+
+> It floats just *above* the taskbar rather than inside it: on Windows 11 the
+> shell taskbar always draws on top, so a readout placed inside its band would be
+> hidden behind it.
 
 The bar **scales with your screen** — it's sized as a fraction of the monitor's
 working area (clamped to a sensible range), so it stays proportionate on small

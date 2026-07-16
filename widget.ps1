@@ -368,6 +368,10 @@ $fontArrow = New-Object System.Drawing.Font 'Segoe UI', 16, ([System.Drawing.Fon
 $sfRight = New-Object System.Drawing.StringFormat; $sfRight.Alignment = 'Far'
 $sfLeft = New-Object System.Drawing.StringFormat; $sfLeft.Alignment = 'Near'
 $sfCenter = New-Object System.Drawing.StringFormat; $sfCenter.Alignment = 'Center'; $sfCenter.LineAlignment = 'Center'
+# offscreen graphics for measuring text widths (used to pack the taskbar readout tightly)
+$measureBmp = New-Object System.Drawing.Bitmap 1, 1
+$measureG = [System.Drawing.Graphics]::FromImage($measureBmp)
+$measureG.TextRenderingHint = 'ClearTypeGridFit'
 
 function Draw-Spark($g, $rect, $data, $color, $max) {
   if (-not $data -or $data.Count -lt 2) { return }
@@ -845,6 +849,27 @@ function Stat-Pct($key, $d) {
   }
 }
 
+# Width of one taskbar-readout cell for a given value string: icon + gap + text + pads.
+# (left pad 8 + icon 14 + gap 4 + text + right pad 8 = text + 34)
+function Bottom-CellW($valText) {
+  $tw = [double]$measureG.MeasureString([string]$valText, $fontLabel).Width
+  return [int]([math]::Ceiling($tw) + 34)
+}
+# Representative widest value per stat, used to size the readout window so it never
+# needs to resize as live values change (paint packs the ACTUAL values tightly inside).
+function Bottom-Template($key) {
+  switch ($key) {
+    'ram'  { return '99.9 GB' }
+    'vram' { return '99.9 GB' }
+    'net'  {
+      # match the configured units so the reserved width isn't wider than reality
+      if ($null -ne $Cfg -and $Cfg.netUnits -eq 'bits') { return ([string][char]0x2193 + '99.9 Mbps') }
+      return ([string][char]0x2193 + '99.9MB')
+    }
+    default { return '100%' }
+  }
+}
+
 # Collapsed-bar size. Scales with the screen so it shrinks on smaller monitors
 # instead of being a fixed 140 px (which looked oversized on small displays).
 function Peek-Dims($edge) {
@@ -859,12 +884,13 @@ function Peek-Dims($edge) {
     return @($len, $thick)
   }
   if ($edge -eq 'bottom') {
-    $n = (Get-VisibleStats).Count; if ($n -lt 1) { $n = 1 }
-    $cell = [int][math]::Round($sw * 0.05)
-    $cell = [math]::Max(72, [math]::Min(92, $cell))   # keep icon+value readable
-    $w = $n * $cell + 10
+    # width = sum of each stat's cell, snug to its content (no big uniform gaps)
+    $vis = Get-VisibleStats
+    if ($vis.Count -lt 1) { return @(90, [math]::Max(28, $thick + 2)) }
+    $w = 6
+    foreach ($m in $vis) { $w += (Bottom-CellW (Bottom-Template $m.key)) }
     $maxW = [int][math]::Round($sw * 0.6); if ($w -gt $maxW) { $w = $maxW }
-    return @($w, [math]::Max(28, $thick + 2))
+    return @([int]$w, [math]::Max(28, $thick + 2))
   }
   # left / right vertical bar
   $len = [int][math]::Round($sh * 0.16)
@@ -880,17 +906,17 @@ function Set-PeekRounded {
 function Place-Peek($edge) {
   $scr = Screen-Of $form
   $wa = $scr.WorkingArea
-  $sb = $scr.Bounds
   $dim = Peek-Dims $edge; $pw = $dim[0]; $ph = $dim[1]
   $peek.Width = $pw; $peek.Height = $ph
   switch ($edge) {
     'left'   { $x = $wa.Left; $y = $wa.Top + [int](($wa.Height - $ph) / 2) }
     'top'    { $x = $wa.Left + [int](($wa.Width - $pw) / 2); $y = $wa.Top }
     'bottom' {
-      # sit in the taskbar band (if the taskbar is at the bottom), just left of the tray
-      $tbH = $sb.Bottom - $wa.Bottom
-      if ($tbH -gt 8) { $y = $wa.Bottom + [int](([math]::Max($tbH, $ph) - $ph) / 2) } else { $y = $wa.Bottom - $ph - 2 }
-      $x = $sb.Right - $pw - 200
+      # Sit JUST ABOVE the taskbar, right-aligned near the tray. Placing it inside
+      # the taskbar band gets it covered by the Windows 11 shell taskbar (invisible),
+      # which made it seem to "not show" on startup.
+      $y = $wa.Bottom - $ph - 4
+      $x = $wa.Right - $pw - 16
       if ($x -lt $wa.Left + 6) { $x = $wa.Left + 6 }
     }
     default  { $x = $wa.Right - $pw; $y = $wa.Top + [int](($wa.Height - $ph) / 2) }   # right
@@ -912,13 +938,15 @@ $peek.Add_Paint({ param($s, $e)
   $vis = Get-VisibleStats
   $n = $vis.Count; if ($n -lt 1) { $n = 1 }
   if ($edge -eq 'bottom') {
-    # taskbar-style readout: each enabled stat as icon + value, left to right,
+    # taskbar-style readout: each enabled stat as icon + value, packed tightly
+    # left-to-right (each cell sized to its own value so there are no big gaps),
     # with a thin percentage-fill under each cell in the stat's colour
-    $cellW = $peek.Width / $n
     $sfm = New-Object System.Drawing.StringFormat; $sfm.Alignment = 'Near'; $sfm.LineAlignment = 'Center'
-    $ci = 0
+    $cellX = 3
     foreach ($m in $vis) {
-      $cellX = $ci * $cellW
+      $val = if ($d) { Stat-ShortValue $m.key $d } else { '--' }
+      $tw = [int][math]::Ceiling($g.MeasureString([string]$val, $fontLabel).Width)
+      $cellW = $tw + 34
       $pct = Stat-Pct $m.key $d
       $fw = [int](($cellW - 8) * $pct / 100)
       if ($fw -gt 0) {
@@ -926,9 +954,8 @@ $peek.Add_Paint({ param($s, $e)
         $g.FillRectangle($mb, [int]($cellX + 4), ($peek.Height - 3), $fw, 3); $mb.Dispose()
       }
       Draw-Icon $g $m.key ($cellX + 8) 7 14 $m.color
-      $val = if ($d) { Stat-ShortValue $m.key $d } else { '--' }
-      $g.DrawString([string]$val, $fontLabel, $tb, (New-Object System.Drawing.RectangleF ($cellX + 26), -1, ($cellW - 28), ($peek.Height - 2)), $sfm)
-      $ci++
+      $g.DrawString([string]$val, $fontLabel, $tb, (New-Object System.Drawing.RectangleF ($cellX + 26), -1, ($tw + 6), ($peek.Height - 2)), $sfm)
+      $cellX += $cellW
     }
   }
   else {
