@@ -76,6 +76,7 @@ the hidden `⌃` overflow — drag it onto the taskbar to pin it).
 | **Drag the left/right edge** | Resizes the width (see sizes below) |
 | **Click the `»` button** (top-right) | Collapses to the **nearest** screen edge — the button's arrow (`«` `»` `▴` `▾`) shows which, and follows the widget as you move it |
 | **Hover the edge bar** (when collapsed) | The widget **peeks out**; it slides away again when the pointer leaves |
+| **Drag the edge bar** | Slides it **along its edge** to wherever you like; the position is remembered |
 | **Click the edge bar** | Brings the widget back for good (un-docks) |
 | **Right-click** the panel or tray icon | Opens the settings menu |
 | **Double-click the tray icon** | Show / hide (or restore) the panel |
@@ -98,6 +99,8 @@ there, leaving a slim bar. (You can also click the `»` button, or use right-cli
 **Hide to edge**.) **Hover the bar** and the widget peeks back into view; move the
 pointer away and it hides again — like the Windows taskbar's auto-hide. **Click the
 bar** to bring it back for good, or just **drag** the peeked widget away from the edge.
+**Drag the bar itself** to slide it along its edge to any spot you like (it no longer
+sits fixed in the middle / corner) — the position is remembered.
 
 Each edge shows a fitting bar that **stacks a small meter for every enabled
 stat** — one coloured box per stat (CPU, Memory, GPU, VRAM, Network), each

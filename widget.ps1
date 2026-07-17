@@ -140,7 +140,7 @@ if (-not $gotSingleton) { exit }
 
 # ---------- config ----------
 $DefaultCfg = @{
-  corner = 'bottom-right'; opacity = 88; interval = 1000; width = 248; dockEdge = 'top'; netUnits = 'bytes'; docked = $false
+  corner = 'bottom-right'; opacity = 88; interval = 1000; width = 248; dockEdge = 'top'; netUnits = 'bytes'; docked = $false; dockPos = -1
   stats = @{ cpu = $true; ram = $true; gpu = $true; vram = $true; net = $true }
 }
 function Load-Cfg {
@@ -155,6 +155,7 @@ function Load-Cfg {
         dockEdge = if ($j.dockEdge) { [string]$j.dockEdge } else { $DefaultCfg.dockEdge }
         netUnits = if ($j.netUnits) { [string]$j.netUnits } else { $DefaultCfg.netUnits }
         docked   = [bool]$j.docked
+        dockPos  = if ($null -ne $j.dockPos) { [double]$j.dockPos } else { -1 }
         stats = @{
           cpu  = [bool]$j.stats.cpu;  ram  = [bool]$j.stats.ram
           gpu  = [bool]$j.stats.gpu;  vram = [bool]$j.stats.vram; net = [bool]$j.stats.net
@@ -165,7 +166,7 @@ function Load-Cfg {
   # deep copy so mutating $Cfg.stats never touches $DefaultCfg.stats (Clone() is shallow)
   return @{
     corner = $DefaultCfg.corner; opacity = $DefaultCfg.opacity; interval = $DefaultCfg.interval
-    width = $DefaultCfg.width; dockEdge = $DefaultCfg.dockEdge; netUnits = $DefaultCfg.netUnits; docked = $false
+    width = $DefaultCfg.width; dockEdge = $DefaultCfg.dockEdge; netUnits = $DefaultCfg.netUnits; docked = $false; dockPos = -1
     stats = @{ cpu = $true; ram = $true; gpu = $true; vram = $true; net = $true }
   }
 }
@@ -816,6 +817,10 @@ $peek.Cursor = [System.Windows.Forms.Cursors]::Hand
 $script:docked = $false
 $script:peekShown = $false
 $script:lastHover = Get-Date
+$script:peekDrag = $false
+$script:peekMoved = $false
+$script:peekDownScreen = New-Object System.Drawing.Point 0, 0
+$script:peekGrab = New-Object System.Drawing.Point 0, 0
 
 # Compact per-stat value for the bottom (taskbar) readout.
 function Stat-ShortValue($key, $d) {
@@ -908,19 +913,22 @@ function Place-Peek($edge) {
   $wa = $scr.WorkingArea
   $dim = Peek-Dims $edge; $pw = $dim[0]; $ph = $dim[1]
   $peek.Width = $pw; $peek.Height = $ph
+  # $Cfg.dockPos (0..1) = a user-dragged position along the edge; -1 = default
+  # (centred on the 3 edges, or right-of-tray for the bottom readout).
+  $pos = $Cfg.dockPos; $hasPos = ($null -ne $pos -and $pos -ge 0)
   switch ($edge) {
-    'left'   { $x = $wa.Left; $y = $wa.Top + [int](($wa.Height - $ph) / 2) }
-    'top'    { $x = $wa.Left + [int](($wa.Width - $pw) / 2); $y = $wa.Top }
+    'left'   { $x = $wa.Left; $y = if ($hasPos) { $wa.Top + [int]($pos * ($wa.Height - $ph)) } else { $wa.Top + [int](($wa.Height - $ph) / 2) } }
+    'top'    { $y = $wa.Top; $x = if ($hasPos) { $wa.Left + [int]($pos * ($wa.Width - $pw)) } else { $wa.Left + [int](($wa.Width - $pw) / 2) } }
     'bottom' {
-      # Sit JUST ABOVE the taskbar, right-aligned near the tray. Placing it inside
-      # the taskbar band gets it covered by the Windows 11 shell taskbar (invisible),
-      # which made it seem to "not show" on startup.
+      # Sit JUST ABOVE the taskbar (the Win11 shell covers anything inside its band).
       $y = $wa.Bottom - $ph - 4
-      $x = $wa.Right - $pw - 16
-      if ($x -lt $wa.Left + 6) { $x = $wa.Left + 6 }
+      $x = if ($hasPos) { $wa.Left + [int]($pos * ($wa.Width - $pw)) } else { $wa.Right - $pw - 16 }
     }
-    default  { $x = $wa.Right - $pw; $y = $wa.Top + [int](($wa.Height - $ph) / 2) }   # right
+    default  { $x = $wa.Right - $pw; $y = if ($hasPos) { $wa.Top + [int]($pos * ($wa.Height - $ph)) } else { $wa.Top + [int](($wa.Height - $ph) / 2) } }   # right
   }
+  # keep the bar fully within the working area
+  $x = [math]::Min([math]::Max([int]$x, $wa.Left), [math]::Max($wa.Left, $wa.Right - $pw))
+  $y = [math]::Min([math]::Max([int]$y, $wa.Top), [math]::Max($wa.Top, $wa.Bottom - $ph))
   $peek.Location = New-Object System.Drawing.Point([int]$x, [int]$y)
   Set-PeekRounded
 }
@@ -1012,7 +1020,51 @@ $peek.Add_Paint({ param($s, $e)
     if ($trackBrush) { $trackBrush.Dispose() }
   }
 })
-$peek.Add_MouseDown({ param($s, $e) Show-Widget })   # click the bar to bring the widget back for good
+# The docked bar: click to restore the widget, or DRAG it to slide it along its edge.
+function Save-PeekPos {
+  $wa = (Screen-Of $peek).WorkingArea
+  if ($Cfg.dockEdge -eq 'top' -or $Cfg.dockEdge -eq 'bottom') {
+    $travel = $wa.Width - $peek.Width
+    $pos = if ($travel -gt 0) { ($peek.Left - $wa.Left) / $travel } else { 0 }
+  } else {
+    $travel = $wa.Height - $peek.Height
+    $pos = if ($travel -gt 0) { ($peek.Top - $wa.Top) / $travel } else { 0 }
+  }
+  $Cfg.dockPos = [math]::Round([math]::Max(0.0, [math]::Min(1.0, [double]$pos)), 4)
+  Save-Cfg
+}
+$peek.Add_MouseDown({ param($s, $e)
+  if ($e.Button -ne [System.Windows.Forms.MouseButtons]::Left) { return }
+  $script:peekDrag = $true; $script:peekMoved = $false
+  $script:peekDownScreen = [System.Windows.Forms.Cursor]::Position
+  $script:peekGrab = New-Object System.Drawing.Point (($script:peekDownScreen.X - $peek.Left), ($script:peekDownScreen.Y - $peek.Top))
+})
+$peek.Add_MouseMove({ param($s, $e)
+  if (-not $script:peekDrag) { return }
+  $cur = [System.Windows.Forms.Cursor]::Position
+  if (-not $script:peekMoved) {
+    if (([math]::Abs($cur.X - $script:peekDownScreen.X) + [math]::Abs($cur.Y - $script:peekDownScreen.Y)) -lt 4) { return }
+    $script:peekMoved = $true
+    if ($script:peekShown) { Peek-In }   # hide the peeked widget so only the bar moves
+  }
+  $wa = (Screen-Of $peek).WorkingArea
+  $pw = $peek.Width; $ph = $peek.Height
+  switch ($Cfg.dockEdge) {
+    'top'    { $y = $wa.Top; $x = $cur.X - $script:peekGrab.X }
+    'bottom' { $y = $wa.Bottom - $ph - 4; $x = $cur.X - $script:peekGrab.X }
+    'left'   { $x = $wa.Left; $y = $cur.Y - $script:peekGrab.Y }
+    default  { $x = $wa.Right - $pw; $y = $cur.Y - $script:peekGrab.Y }
+  }
+  $x = [math]::Min([math]::Max([int]$x, $wa.Left), [math]::Max($wa.Left, $wa.Right - $pw))
+  $y = [math]::Min([math]::Max([int]$y, $wa.Top), [math]::Max($wa.Top, $wa.Bottom - $ph))
+  $peek.Location = New-Object System.Drawing.Point([int]$x, [int]$y)
+})
+$peek.Add_MouseUp({ param($s, $e)
+  if ($e.Button -ne [System.Windows.Forms.MouseButtons]::Left) { return }
+  $wasDrag = $script:peekMoved
+  $script:peekDrag = $false; $script:peekMoved = $false
+  if ($wasDrag) { Save-PeekPos } else { Show-Widget }   # click (no drag) = restore the widget
+})
 
 # Position the widget just inside the bar so the bar stays visible and clickable.
 function Peek-Place {
@@ -1042,6 +1094,7 @@ function Peek-In {
 }
 
 function Hide-ToEdge($edge) {
+  if ($Cfg.dockEdge -ne $edge) { $Cfg.dockPos = -1 }   # a different edge starts at its default position
   $Cfg.dockEdge = $edge; $Cfg.docked = $true; Save-Cfg   # remember docked state for next startup
   $script:docked = $true; $script:peekShown = $false
   Place-Peek $edge
@@ -1066,6 +1119,7 @@ $dockTimer = New-Object System.Windows.Forms.Timer
 $dockTimer.Interval = 110
 $dockTimer.Add_Tick({
   if (-not $script:docked) { return }
+  if ($script:peekDrag) { return }   # don't peek the widget out while dragging the bar
   try {
     $cur = [System.Windows.Forms.Cursor]::Position
     $overBar = $peek.Bounds.Contains($cur)
