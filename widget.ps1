@@ -468,14 +468,20 @@ function Draw-Icon($g, $key, $x, $y, $s, $color) {
       for ($i = 0; $i -lt 3; $i++) { $ry = $y + 3 + $i * 3.4; & $R $rx $ry $rw 2.0 }
     }
     'net' {
-      # down + up arrows
+      # down arrow (violet = download) + up arrow (red = upload) — the same two
+      # colours as the network graph, so the stat reads consistently everywhere
       $c1 = $x + $s * 0.34; $c2 = $x + $s * 0.66; $top = $y + 3; $bot = $y + $s - 3
-      & $L $c1 $top $c1 $bot
-      & $L ($c1 - 2) ($bot - 2.5) $c1 $bot
-      & $L ($c1 + 2) ($bot - 2.5) $c1 $bot
-      & $L $c2 $top $c2 $bot
-      & $L ($c2 - 2) ($top + 2.5) $c2 $top
-      & $L ($c2 + 2) ($top + 2.5) $c2 $top
+      $penDn = New-Object System.Drawing.Pen $Pal.down, 1.4
+      $penDn.StartCap = 'Round'; $penDn.EndCap = 'Round'; $penDn.LineJoin = 'Round'
+      $penUp = New-Object System.Drawing.Pen $Pal.up, 1.4
+      $penUp.StartCap = 'Round'; $penUp.EndCap = 'Round'; $penUp.LineJoin = 'Round'
+      $g.DrawLine($penDn, [single]$c1, [single]$top, [single]$c1, [single]$bot)
+      $g.DrawLine($penDn, [single]($c1 - 2), [single]($bot - 2.5), [single]$c1, [single]$bot)
+      $g.DrawLine($penDn, [single]($c1 + 2), [single]($bot - 2.5), [single]$c1, [single]$bot)
+      $g.DrawLine($penUp, [single]$c2, [single]$top, [single]$c2, [single]$bot)
+      $g.DrawLine($penUp, [single]($c2 - 2), [single]($top + 2.5), [single]$c2, [single]$top)
+      $g.DrawLine($penUp, [single]($c2 + 2), [single]($top + 2.5), [single]$c2, [single]$top)
+      $penDn.Dispose(); $penUp.Dispose()
     }
     'disk' {
       # cylinder
@@ -1020,7 +1026,19 @@ $peek.Add_Paint({ param($s, $e)
     if ($trackBrush) { $trackBrush.Dispose() }
   }
 })
-# The docked bar: click to restore the widget, or DRAG it to slide it along its edge.
+# Which working-area edge is a screen point nearest to (ties favour top/bottom).
+function Cursor-Edge($cur, $wa) {
+  $dT = $cur.Y - $wa.Top; $dB = $wa.Bottom - $cur.Y
+  $dL = $cur.X - $wa.Left; $dR = $wa.Right - $cur.X
+  $min = [math]::Min([math]::Min($dT, $dB), [math]::Min($dL, $dR))
+  if ($min -eq $dT) { return 'top' }
+  if ($min -eq $dB) { return 'bottom' }
+  if ($min -eq $dL) { return 'left' }
+  return 'right'
+}
+
+# The docked bar: click to restore the widget, or DRAG it to move it along an edge
+# or across to a different edge (it re-orients to whichever edge you drag it near).
 function Save-PeekPos {
   $wa = (Screen-Of $peek).WorkingArea
   if ($Cfg.dockEdge -eq 'top' -or $Cfg.dockEdge -eq 'bottom') {
@@ -1047,23 +1065,39 @@ $peek.Add_MouseMove({ param($s, $e)
     $script:peekMoved = $true
     if ($script:peekShown) { Peek-In }   # hide the peeked widget so only the bar moves
   }
-  $wa = (Screen-Of $peek).WorkingArea
+  $wa = ([System.Windows.Forms.Screen]::FromPoint($cur)).WorkingArea
+  # follow the cursor to whichever edge it's nearest, re-orienting the bar on the way
+  $target = Cursor-Edge $cur $wa
+  $switched = ($target -ne $Cfg.dockEdge)
+  if ($switched) {
+    $Cfg.dockEdge = $target
+    $dim = Peek-Dims $target; $peek.Width = $dim[0]; $peek.Height = $dim[1]
+    Set-PeekRounded
+    $peek.Invalidate()   # redraw for the new orientation / arrow
+  }
   $pw = $peek.Width; $ph = $peek.Height
+  # free axis: keep the grab offset on the same edge (no jump); centre on the cursor
+  # right after an edge switch (the bar just changed size/orientation)
   switch ($Cfg.dockEdge) {
-    'top'    { $y = $wa.Top; $x = $cur.X - $script:peekGrab.X }
-    'bottom' { $y = $wa.Bottom - $ph - 4; $x = $cur.X - $script:peekGrab.X }
-    'left'   { $x = $wa.Left; $y = $cur.Y - $script:peekGrab.Y }
-    default  { $x = $wa.Right - $pw; $y = $cur.Y - $script:peekGrab.Y }
+    'top'    { $y = $wa.Top;              $x = if ($switched) { $cur.X - [int]($pw / 2) } else { $cur.X - $script:peekGrab.X } }
+    'bottom' { $y = $wa.Bottom - $ph - 4; $x = if ($switched) { $cur.X - [int]($pw / 2) } else { $cur.X - $script:peekGrab.X } }
+    'left'   { $x = $wa.Left;             $y = if ($switched) { $cur.Y - [int]($ph / 2) } else { $cur.Y - $script:peekGrab.Y } }
+    default  { $x = $wa.Right - $pw;      $y = if ($switched) { $cur.Y - [int]($ph / 2) } else { $cur.Y - $script:peekGrab.Y } }
   }
   $x = [math]::Min([math]::Max([int]$x, $wa.Left), [math]::Max($wa.Left, $wa.Right - $pw))
   $y = [math]::Min([math]::Max([int]$y, $wa.Top), [math]::Max($wa.Top, $wa.Bottom - $ph))
   $peek.Location = New-Object System.Drawing.Point([int]$x, [int]$y)
+  # re-anchor the grab to the cursor after a switch so continued dragging stays smooth
+  if ($switched) { $script:peekGrab = New-Object System.Drawing.Point (($cur.X - $peek.Left), ($cur.Y - $peek.Top)) }
 })
 $peek.Add_MouseUp({ param($s, $e)
   if ($e.Button -ne [System.Windows.Forms.MouseButtons]::Left) { return }
   $wasDrag = $script:peekMoved
   $script:peekDrag = $false; $script:peekMoved = $false
-  if ($wasDrag) { Save-PeekPos } else { Show-Widget }   # click (no drag) = restore the widget
+  if ($wasDrag) {
+    Save-PeekPos   # persists dockPos (Save-Cfg also writes the possibly-changed dockEdge)
+    Build-Menu     # refresh the menu state for the (possibly new) edge
+  } else { Show-Widget }   # click (no drag) = restore the widget
 })
 
 # Position the widget just inside the bar so the bar stays visible and clickable.
