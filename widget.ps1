@@ -25,6 +25,7 @@ if (-not ('Native.Win' -as [type])) {
 [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr h, int n);
 [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool DestroyIcon(System.IntPtr h);
 [System.Runtime.InteropServices.DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(System.IntPtr hwnd, int attr, ref int val, int size);
+[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool SetWindowPos(System.IntPtr hwnd, System.IntPtr after, int x, int y, int cx, int cy, uint flags);
 '@
 }
 
@@ -1016,6 +1017,10 @@ $peek.Add_Paint({ param($s, $e)
       $g.DrawString([string]$arrow, $fontBtn, $tb, (New-Object System.Drawing.RectangleF 0, -1, $peek.Width, $arrowBand), $sfCenter)
     }
   }
+  # a visible outline so the collapsed bar never blends into the desktop
+  $border = New-Object System.Drawing.Pen $Pal.muted, 1
+  $g.DrawRectangle($border, 0, 0, ($peek.Width - 1), ($peek.Height - 1))
+  $border.Dispose()
   } catch {
     "$([DateTime]::Now) PEEK: $($_.Exception.Message)" | Out-File -FilePath $LogPath -Append -Encoding UTF8
   } finally {
@@ -1127,15 +1132,28 @@ function Peek-In {
   $form.Hide()
 }
 
+# Force the docked bar to actually show on top and repaint now. Guards against a
+# composition / z-order race (e.g. when auto-started at login before the desktop is
+# ready) that can leave the bar present-but-not-drawn.
+function Force-PeekShow {
+  try {
+    if (-not $peek.Visible) { $peek.Show() }
+    $peek.TopMost = $true
+    # HWND_TOPMOST=-1; SWP_NOSIZE=1|NOMOVE=2|NOACTIVATE=0x10|SHOWWINDOW=0x40
+    [void][Native.Win]::SetWindowPos($peek.Handle, [System.IntPtr](-1), 0, 0, 0, 0, [uint32](0x1 -bor 0x2 -bor 0x10 -bor 0x40))
+    $peek.Refresh()
+  } catch {}
+}
 function Hide-ToEdge($edge) {
   if ($Cfg.dockEdge -ne $edge) { $Cfg.dockPos = -1 }   # a different edge starts at its default position
   $Cfg.dockEdge = $edge; $Cfg.docked = $true; Save-Cfg   # remember docked state for next startup
   $script:docked = $true; $script:peekShown = $false
   Place-Peek $edge
   $form.Hide()
-  $peek.Show(); $peek.TopMost = $true; $peek.Invalidate()
+  Force-PeekShow
   $script:lastHover = Get-Date
   $dockTimer.Start()
+  $script:reassertUntil = (Get-Date).AddSeconds(4)   # re-assert visibility for a few seconds (startup race)
   Build-Menu
 }
 function Show-Widget {
@@ -1155,6 +1173,11 @@ $dockTimer.Add_Tick({
   if (-not $script:docked) { return }
   if ($script:peekDrag) { return }   # don't peek the widget out while dragging the bar
   try {
+    # keep re-asserting the bar's visibility briefly after docking (startup race), and
+    # always recover if something hid it
+    if (-not $script:peekShown -and (-not $peek.Visible -or ($script:reassertUntil -and (Get-Date) -lt $script:reassertUntil))) {
+      Force-PeekShow
+    }
     $cur = [System.Windows.Forms.Cursor]::Position
     $overBar = $peek.Bounds.Contains($cur)
     $overForm = $script:peekShown -and $form.Bounds.Contains($cur)
