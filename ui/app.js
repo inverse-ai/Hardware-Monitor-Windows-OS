@@ -1095,7 +1095,7 @@ function groupProcs(procs) {
     g.cpu += pr.cpu; g.memB += pr.memB; g.ioR += pr.ioR; g.ioW += pr.ioW;
     g.threads += pr.threads; g.tcp += pr.tcp; g.est += pr.est;
     g.remoteCount += pr.remoteCount;
-    for (const rm of pr.remotes || []) { if (g.remotes.length < 3 && !g.remotes.includes(rm)) g.remotes.push(rm); }
+    for (const rm of pr.remotes || []) { if (g.remotes.length < 3 && !g.remotes.some(x => x.ip === rm.ip)) g.remotes.push(rm); }
   }
   return [...map.values()];
 }
@@ -1143,6 +1143,33 @@ function renderProcTable() {
 
 /* ================= network tables ================= */
 
+// Map a reverse-DNS hostname to a recognisable service name. Reverse DNS usually
+// reveals the hosting network / CDN rather than the exact site, so this is a best
+// effort — the full hostname + IP are always available in the cell's tooltip.
+const SERVICE_MAP = [
+  ['1e100.net','Google'],['googlevideo','YouTube'],['youtube','YouTube'],['ytimg','YouTube'],['gstatic','Google'],['ggpht','Google'],['doubleclick','Google Ads'],['googleusercontent','Google Cloud'],['google','Google'],
+  ['fbcdn','Meta / Facebook'],['facebook','Facebook'],['instagram','Instagram'],['whatsapp','WhatsApp'],['fbsbx','Meta'],
+  ['cloudfront','AWS CloudFront'],['amazonaws','AWS'],
+  ['edgekey','Akamai CDN'],['edgesuite','Akamai CDN'],['akamai','Akamai CDN'],
+  ['azureedge','Azure CDN'],['trafficmanager','Azure'],['azure','Azure'],['windowsupdate','Windows Update'],['msedge.net','Microsoft Edge'],['office','Microsoft 365'],['live.com','Microsoft'],['msn','MSN'],['skype','Skype'],['bing','Bing'],['microsoft','Microsoft'],['msft','Microsoft'],
+  ['one.one.one.one','Cloudflare DNS'],['cloudflare','Cloudflare'],['fastly','Fastly CDN'],
+  ['githubusercontent','GitHub'],['github','GitHub'],
+  ['aaplimg','Apple'],['icloud','iCloud'],['apple','Apple'],
+  ['nflxvideo','Netflix'],['nflxso','Netflix'],['netflix','Netflix'],
+  ['byteoversea','TikTok'],['bytedance','TikTok'],['tiktok','TikTok'],['ttdns','TikTok'],
+  ['twimg','X / Twitter'],['twitter','X / Twitter'],
+  ['scdn.co','Spotify'],['spotify','Spotify'],['discord','Discord'],['steampowered','Steam'],['valve','Steam / Valve'],['steam','Steam'],['epicgames','Epic Games'],['riotgames','Riot Games'],
+  ['openai','OpenAI'],['anthropic','Anthropic'],['claude','Anthropic'],
+  ['redditmedia','Reddit'],['redd.it','Reddit'],['reddit','Reddit'],['telegram','Telegram'],
+];
+function friendlyHost(host, ip) {
+  if (!host) return ip;
+  const h = host.toLowerCase();
+  for (const [needle, label] of SERVICE_MAP) { if (h.includes(needle)) return label; }
+  const p = host.replace(/\.$/, '').split('.');   // else the registrable-ish domain
+  return p.length >= 2 ? p.slice(-2).join('.') : host;
+}
+
 function renderNetTables() {
   // adapters
   if (last && last.net) {
@@ -1173,8 +1200,11 @@ function renderNetTables() {
       tr.appendChild(el('td', '', String(r.est)));
       tr.appendChild(el('td', '', r.io ? fmtBytes(r.io) + '/s' : '—'));
       const extra = r.remoteCount - r.remotes.length;
-      const remotes = r.remotes.join(', ') + (extra > 0 ? `  +${extra}` : '');
-      tr.appendChild(el('td', 't-left remote-list', remotes || '—'));
+      const labels = r.remotes.map(rm => friendlyHost(rm.host, rm.ip));
+      const remotes = labels.join(', ') + (extra > 0 ? `  +${extra}` : '');
+      const rtd = el('td', 't-left remote-list', remotes || '—');
+      rtd.title = r.remotes.map(rm => rm.host ? `${rm.host}  (${rm.ip})` : rm.ip).join('\n') || '';
+      tr.appendChild(rtd);
       tbody.appendChild(tr);
     }
   }

@@ -240,10 +240,17 @@ function Get-Detail {
       $nameByPid[$procPid] = [string]($p.Name -replace '#\d+$', '')
       $t = $null
       if ($tcp.ContainsKey($procPid)) { $t = $tcp[$procPid] }
-      $remotes = [string[]]@(); $remoteCount = 0
+      $remotes = @(); $remoteCount = 0
       if ($t) {
-        $remotes = [string[]]@($t.remotes.Keys | Select-Object -First 3)
         $remoteCount = [int]$t.remotes.Count
+        foreach ($ipK in (@($t.remotes.Keys) | Select-Object -First 3)) {
+          $ipS = [string]$ipK
+          # queue the IP for reverse-DNS (value $null = pending) and read any result so far
+          [System.Threading.Monitor]::Enter($DnsCache.SyncRoot)
+          try { if (-not $DnsCache.ContainsKey($ipS)) { $DnsCache[$ipS] = $null }; $hn = $DnsCache[$ipS] }
+          finally { [System.Threading.Monitor]::Exit($DnsCache.SyncRoot) }
+          $remotes += @{ ip = $ipS; host = [string]$(if ($hn) { $hn } else { '' }) }
+        }
       }
       [void]$procs.Add(@{
         name        = [string]($p.Name -replace '#\d+$', '')
@@ -255,7 +262,7 @@ function Get-Detail {
         threads     = [int]$p.ThreadCount
         tcp         = $(if ($t) { [int]$t.total } else { 0 })
         est         = $(if ($t) { [int]$t.est } else { 0 })
-        remotes     = $remotes
+        remotes     = @($remotes)
         remoteCount = $remoteCount
       })
     }
@@ -328,6 +335,9 @@ $mime = @{
 }
 
 $Cache = [hashtable]::Synchronized(@{ statsBytes = $null; detailBytes = $null })
+# Reverse-DNS cache: ip -> hostname. Filled by a background resolver runspace so the
+# (blocking) lookups never slow down sampling. Get-Detail queues new IPs as $null.
+$DnsCache = [hashtable]::Synchronized(@{})
 function ToJsonBytes($obj) { return [Text.Encoding]::UTF8.GetBytes($ser.Serialize($obj)) }
 
 $listener = New-Object System.Net.HttpListener
@@ -392,6 +402,40 @@ for ($i = 0; $i -lt 3; $i++) {
   [void]$ps.BeginInvoke()
   $workers += $ps
 }
+
+# ---- reverse-DNS resolver (background): fills $DnsCache without blocking sampling ----
+$dnsWorker = {
+  param($DnsCache)
+  while ($true) {
+    $pending = @()
+    try {
+      [System.Threading.Monitor]::Enter($DnsCache.SyncRoot)
+      try { foreach ($k in @($DnsCache.Keys)) { if ($null -eq $DnsCache[$k]) { $pending += [string]$k } } }
+      finally { [System.Threading.Monitor]::Exit($DnsCache.SyncRoot) }
+    } catch {}
+    if ($pending.Count -gt 0) {
+      # fire the reverse lookups CONCURRENTLY, then collect - so a batch resolves in
+      # about one timeout window instead of one-after-another
+      $batch = @($pending | Select-Object -First 40)
+      $tasks = @{}
+      foreach ($ip in $batch) {
+        try { $tasks[$ip] = [System.Net.Dns]::GetHostEntryAsync($ip) } catch { $DnsCache[$ip] = '' }
+      }
+      Start-Sleep -Milliseconds 1200   # the lookups run concurrently on the thread pool
+      foreach ($ip in @($tasks.Keys)) {
+        $tk = $tasks[$ip]
+        if (-not $tk.IsCompleted) { continue }   # leave $null (pending) so it retries next pass
+        $name = ''   # '' = resolved but no PTR (UI shows the IP); non-empty = hostname
+        try { if (-not $tk.IsFaulted) { $h = [string]$tk.Result.HostName; if ($h -and $h -ne $ip) { $name = $h } } } catch {}
+        $DnsCache[$ip] = $name
+      }
+    }
+    Start-Sleep -Milliseconds 500
+  }
+}
+$dnsPs = [powershell]::Create()
+[void]$dnsPs.AddScript($dnsWorker).AddArgument($DnsCache)
+[void]$dnsPs.BeginInvoke()
 
 Write-Host ''
 Write-Host "  Hardware Monitor  ->  http://localhost:$Port/" -ForegroundColor Green

@@ -176,7 +176,11 @@ arrow keys work when the chart is focused), followed by:
 - **Memory** — a composition bar (in use / modified / standby cache / free) plus
   commit charge, page file, paged/non-paged pool, system cache and hard faults.
 - **Network** — per-adapter link speed and throughput, plus a **by-app** table
-  with exact TCP connection counts, established connections and remote endpoints.
+  with exact TCP connection counts, established connections and the **remote hosts
+  / service** each app is talking to. Remote IPs are resolved to host names by
+  reverse DNS and labelled with a recognisable service where possible (e.g.
+  *Google*, *AWS*, *Akamai CDN*, *Cloudflare*); hover a cell to see the full host
+  name and IP. IPs with no reverse-DNS record are shown as-is.
 - **Disk** — a card per physical disk with an active-time graph, read/write
   rates and queue depth.
 
@@ -252,9 +256,15 @@ widget-config.json          Created at runtime — remembers the widget's settin
 
 ## Privacy
 
-Everything is local. The server binds to `localhost` only and makes no outbound
-connections. The "remote endpoints" column just reads your machine's own TCP
-table (`Get-NetTCPConnection`); nothing is sent anywhere.
+Everything is local. The server binds to `localhost` only and serves the dashboard
+to your browser alone. The connection list just reads your machine's own TCP table
+(`Get-NetTCPConnection`); nothing about it is sent to any third party.
+
+The one lookup that leaves your machine is **reverse DNS**: to turn a remote IP in
+the by-app table into a host name, the server asks your configured DNS resolver for
+that IP's PTR record — a standard reverse lookup for an address your machine is
+*already* connected to. No connection data is sent anywhere else, and the results
+are cached in memory only.
 
 ---
 
